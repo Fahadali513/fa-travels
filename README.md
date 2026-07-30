@@ -16,6 +16,44 @@ python3 -m http.server 8080
 # then visit http://localhost:8080
 ```
 
+## Latest updates
+- Mobile menu now includes **Login/My Account** and **Book Now**, and the
+  header no longer causes horizontal scrolling on small screens.
+- Contact form submissions are saved and viewable in **Admin → Messages**
+  (with unread count, mark read/unread, delete).
+- Every image field (package cover photo, gallery, blog, homepage hero image)
+  now has an **"Upload From Device"** option alongside the URL field.
+- Customers can attach their own photo when leaving a review.
+- **Admin login is no longer remembered** — reloading the page or reopening
+  the site always requires logging in again (customer login still persists).
+- Privacy Policy and Terms & Conditions text are now editable from
+  Admin → Website Settings → Legal Pages.
+
+## Latest updates (round 3)
+- **Fixed a real overflow bug**: the desktop nav was cramped/cut off on
+  medium-width windows (roughly 960–1400px) because it never collapsed to
+  the mobile menu early enough. The collapse breakpoint is now wider so the
+  full nav only shows when there's actually room for it.
+- **Phone number at signup is optional.**
+- **Booking history filters**: customers can filter "My Bookings" by month
+  and year on their dashboard; admins can open any customer's full profile
+  (Admin → Customers → View History) and filter that same way, seeing
+  all-time history plus phone, photo, and join date.
+- **Ask a Question**: customers can submit a question from their dashboard;
+  admins answer it from Admin → Customer Questions, and the reply shows up
+  back on the customer's dashboard under their question.
+- **Show/hide password** eye-icon toggle added to every password field
+  (login, register, admin login, change-password forms, etc.) — this is the
+  safe way to "view" a password without ever storing or displaying it in
+  plain text anywhere.
+- **Customer-side Forgot Password**: at signup, customers set their own
+  custom security question and answer (their choice of wording, not a fixed
+  list) and can use it later at `#/forgot` to reset their password — same
+  pattern as the admin's own forgot-password flow.
+- **Profile photo at signup**: customers can upload a picture when creating
+  their account (or later from Profile Settings), shown next to their name
+  on the dashboard and in the admin's Customers list / customer detail page.
+
 ## What works right now
 - Every public page: Home, About, Packages (with filters/sorting), Package
   Details, Booking, Gallery (with lightbox), Reviews, Blog, FAQs, Contact,

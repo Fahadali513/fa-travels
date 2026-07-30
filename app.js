@@ -184,6 +184,8 @@ function defaultDB(){
       maintenanceMode:false,
       stats:{customers:12800, countries:64, tours:3400, years:11, hotels:520},
       heroImage:'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1600&q=70',
+      privacyText:'Fahad Travels respects your privacy. We only collect the information required to process your bookings and improve our services. We never sell your data to third parties. For questions, contact us using the details on our Contact page.',
+      termsText:'By booking with Fahad Travels, you agree to our booking, cancellation, and payment terms. Bookings can be edited or cancelled within the edit window shown at the time of booking. After that window, changes are handled by our support team on a case-by-case basis.',
     },
     admin:{ username:'Fahad', passwordHash:null, securityQuestion:'What is your favourite color?', securityAnswerHash:null },
     packages: seedPackages(),
@@ -193,6 +195,8 @@ function defaultDB(){
     gallery: seedGallery(),
     faqs: seedFaqs(),
     blog: seedBlog(),
+    messages: [],
+    questions: [],
     activityLog: [],
     coupons: [{id:uid('CPN'), code:'WELCOME10', discount:10, expiry:'2026-12-31', usageLimit:100, used:0}],
   };
@@ -201,7 +205,16 @@ function defaultDB(){
 let DB = null;
 function loadDB(){
   const raw = localStorage.getItem(DB_KEY);
-  if(raw){ DB = JSON.parse(raw); return; }
+  if(raw){
+    DB = JSON.parse(raw);
+    const fresh = defaultDB();
+    // migrate: fill in any new fields older saved data doesn't have yet
+    if(!DB.messages) DB.messages = [];
+    if(!DB.questions) DB.questions = [];
+    DB.settings = Object.assign({}, fresh.settings, DB.settings);
+    saveDB();
+    return;
+  }
   DB = defaultDB();
   saveDB();
 }
@@ -220,8 +233,12 @@ function logActivity(text){
 }
 
 /* ------------------------------ session --------------------------------- */
-let SESSION = JSON.parse(localStorage.getItem(SESSION_KEY) || '{"customerEmail":null,"isAdmin":false}');
-function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify(SESSION)); }
+// Customer login persists across visits (stored). Admin auth is intentionally
+// NOT persisted anywhere — it lives only in memory for this page load, so the
+// admin panel always requires a fresh login after a reload or new visit.
+let SESSION = JSON.parse(localStorage.getItem(SESSION_KEY) || '{"customerEmail":null}');
+let adminAuthed = false;
+function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify({customerEmail:SESSION.customerEmail})); }
 function currentCustomer(){ return DB.customers.find(c=>c.email===SESSION.customerEmail) || null; }
 
 /* ------------------------------ toast ------------------------------------ */
@@ -302,6 +319,8 @@ function applyBranding(){
   const social = document.getElementById('footer-social');
   social.innerHTML = Object.entries(DB.settings.social||{}).map(([k,v])=>`<a href="${v}" title="${k}">${({facebook:'f',instagram:'◎',twitter:'𝕏',youtube:'▶'})[k]||'•'}</a>`).join('');
   document.getElementById('nav-account').textContent = currentCustomer() ? 'My Account' : 'Login';
+  const navAccountMobile = document.getElementById('nav-account-mobile');
+  if(navAccountMobile) navAccountMobile.textContent = currentCustomer() ? 'My Account' : 'Login';
 }
 
 /* ================================ PAGES ================================= */
@@ -345,7 +364,7 @@ route('/', ()=>{
   const blog = DB.blog.slice(0,3);
 
   return `
-  <section class="hero">
+  <section class="hero" style="background-image:linear-gradient(rgba(8,20,40,.82),rgba(8,20,40,.88)), url('${s.heroImage}');background-size:cover;background-position:center;">
     <div class="container hero-inner">
       <div>
         <div class="eyebrow" style="color:var(--sky-2)">Trusted by ${s.stats.customers.toLocaleString()}+ travelers</div>
@@ -764,6 +783,7 @@ route('/reviews', ()=>{
             <select name="rating">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} Stars</option>`).join('')}</select>
           </div>
           <div class="field"><label>Your Review</label><textarea required rows="3" name="text"></textarea></div>
+          <div class="field"><label>Your Photo (optional)</label><input type="file" accept="image/*" data-fill="avatar"><input type="hidden" name="avatar"></div>
           <button class="btn btn-cta btn-block">Submit Review</button>
           <p class="hint" style="text-align:center;margin-top:10px">Reviews are checked by our team before appearing publicly.</p>
         </form>
@@ -828,8 +848,8 @@ route('/contact', ()=>{
   </section>`;
 });
 
-route('/privacy', ()=>`<section class="section-tight"><div class="container" style="max-width:800px"><h1>Privacy Policy</h1><p class="muted">${DB.settings.siteName} respects your privacy. We only collect the information required to process your bookings and improve our services. We never sell your data to third parties. For questions, contact ${DB.settings.email}.</p></div></section>`);
-route('/terms', ()=>`<section class="section-tight"><div class="container" style="max-width:800px"><h1>Terms &amp; Conditions</h1><p class="muted">By booking with ${DB.settings.siteName}, you agree to our booking, cancellation, and payment terms. Bookings can be edited or cancelled within the edit window shown at the time of booking. After that window, changes are handled by our support team on a case-by-case basis.</p></div></section>`);
+route('/privacy', ()=>`<section class="section-tight"><div class="container" style="max-width:800px"><div class="breadcrumb"><a href="#/">Home</a> / Privacy Policy</div><h1>Privacy Policy</h1><p class="muted">${DB.settings.privacyText}</p></div></section>`);
+route('/terms', ()=>`<section class="section-tight"><div class="container" style="max-width:800px"><div class="breadcrumb"><a href="#/">Home</a> / Terms &amp; Conditions</div><h1>Terms &amp; Conditions</h1><p class="muted">${DB.settings.termsText}</p></div></section>`);
 
 /* ---------------------------- customer auth ------------------------------ */
 route('/login', ()=>{
@@ -844,6 +864,7 @@ route('/login', ()=>{
           <div class="field"><label>Password</label><input required type="password" name="password"></div>
           <button class="btn btn-cta btn-block">Log In</button>
         </form>
+        <div class="auth-switch"><a href="#/forgot">Forgot password?</a></div>
         <div class="auth-switch">New here? <a href="#/register">Create an account</a></div>
       </div>
     </div>
@@ -859,10 +880,31 @@ route('/register', ()=>{
         <form id="register-form">
           <div class="field"><label>Full Name</label><input required name="name"></div>
           <div class="field"><label>Email</label><input required type="email" name="email"></div>
+          <div class="field"><label>Phone (optional)</label><input type="tel" name="phone" placeholder="e.g. +92 300 1234567"></div>
           <div class="field"><label>Password</label><input required type="password" name="password" minlength="6"></div>
+          <div class="field"><label>Profile Picture (optional)</label><input type="file" accept="image/*" data-fill="avatar"><input type="hidden" name="avatar"></div>
+          <div class="field"><label>Security Question <span class="muted" style="font-weight:400">(your own choice — used to reset your password)</span></label><input required name="securityQuestion" placeholder="e.g. What was your first pet's name?"></div>
+          <div class="field"><label>Security Answer</label><input required name="securityAnswer"></div>
           <button class="btn btn-cta btn-block">Create Account</button>
         </form>
         <div class="auth-switch">Already have an account? <a href="#/login">Log in</a></div>
+      </div>
+    </div>
+  </section>`;
+});
+
+route('/forgot', ()=>{
+  return `
+  <section class="section-tight">
+    <div class="container auth-wrap">
+      <div class="form-card reveal">
+        <div class="eyebrow">Reset Password</div><h1 style="font-size:1.5rem">Forgot Your Password?</h1>
+        <form id="forgot-email-form">
+          <div class="field"><label>Your Account Email</label><input required type="email" name="email"></div>
+          <button class="btn btn-primary btn-block">Continue</button>
+        </form>
+        <div id="forgot-step2"></div>
+        <div class="auth-switch"><a href="#/login">Back to Login</a></div>
       </div>
     </div>
   </section>`;
@@ -878,15 +920,44 @@ function editWindowChip(b){
   return `<span class="edit-window closed">Edit window closed</span>`;
 }
 
+function myBookingsTableHtml(list){
+  if(list.length===0) return `<div class="empty-state"><div class="em-icon">🔍</div>No bookings match that filter.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Booking ID</th><th>Package</th><th>Travel Date</th><th>Status</th><th>Edit Window</th><th>Actions</th></tr></thead>
+    <tbody>
+    ${list.map(b=>`
+      <tr>
+        <td>${b.id}</td><td>${b.packageTitle}</td><td>${fmtDate(b.travelDate)}</td>
+        <td><span class="badge badge-${b.status.toLowerCase()}">${b.status}</span></td>
+        <td>${editWindowChip(b)}</td>
+        <td class="row-actions">
+          <button data-edit="${b.id}" ${(Date.now() > b.createdAt + DB.settings.editWindowHours*3600*1000 || !['Pending','Confirmed'].includes(b.status))?'disabled':''}>Edit</button>
+          <button data-cancel="${b.id}" ${(Date.now() > b.createdAt + DB.settings.editWindowHours*3600*1000 || b.status==='Cancelled')?'disabled':''}>Cancel</button>
+        </td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+let dashHistoryFilter = {month:'', year:''};
 route('/dashboard', ()=>{
   const c = currentCustomer();
   if(!c){ return `<section class="section"><div class="container" style="text-align:center"><h2>Please log in to view your dashboard</h2><a href="#/login" class="btn btn-cta">Log In</a></div></section>`; }
   const myBookings = DB.bookings.filter(b=>b.customerEmail===c.email).sort((a,b)=>b.createdAt-a.createdAt);
+  const myQuestions = DB.questions.filter(q=>q.customerEmail===c.email).sort((a,b)=>b.createdAt-a.createdAt);
+  const years = [...new Set(myBookings.map(b=>new Date(b.travelDate).getFullYear()))].sort((a,b)=>b-a);
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  let filteredBookings = myBookings;
+  if(dashHistoryFilter.month !== '') filteredBookings = filteredBookings.filter(b=>new Date(b.travelDate).getMonth()===Number(dashHistoryFilter.month));
+  if(dashHistoryFilter.year !== '') filteredBookings = filteredBookings.filter(b=>new Date(b.travelDate).getFullYear()===Number(dashHistoryFilter.year));
   return `
   <section class="section-tight">
     <div class="container">
       <div class="dash-topbar">
-        <div><div class="eyebrow">Customer Dashboard</div><h1 style="margin:0">Welcome, ${c.name}</h1></div>
+        <div class="dash-welcome">
+          ${c.avatar? `<img class="avatar-lg" src="${c.avatar}">` : `<div class="avatar-circle-placeholder">${c.name.charAt(0).toUpperCase()}</div>`}
+          <div><div class="eyebrow">Customer Dashboard</div><h1 style="margin:0">Welcome, ${c.name}</h1></div>
+        </div>
         <button class="btn btn-ghost" id="logout-btn">Log Out</button>
       </div>
       <div class="kpi-grid">
@@ -896,25 +967,34 @@ route('/dashboard', ()=>{
         <div class="kpi-card"><span>Wishlist</span><b>${(DB.wishlist&&DB.wishlist[c.email]||[]).length}</b></div>
       </div>
       <div class="panel">
-        <h3>My Bookings</h3>
+        <h3>My Bookings &amp; History</h3>
         ${myBookings.length===0? `<div class="empty-state"><div class="em-icon">🧳</div>No bookings yet — <a href="#/packages">browse packages</a> to book your first trip.</div>` : `
-        <div class="table-wrap"><table>
-          <thead><tr><th>Booking ID</th><th>Package</th><th>Travel Date</th><th>Status</th><th>Edit Window</th><th>Actions</th></tr></thead>
-          <tbody>
-          ${myBookings.map(b=>`
-            <tr>
-              <td>${b.id}</td><td>${b.packageTitle}</td><td>${fmtDate(b.travelDate)}</td>
-              <td><span class="badge badge-${b.status.toLowerCase()}">${b.status}</span></td>
-              <td>${editWindowChip(b)}</td>
-              <td class="row-actions">
-                <button data-edit="${b.id}" ${(Date.now() > b.createdAt + DB.settings.editWindowHours*3600*1000 || !['Pending','Confirmed'].includes(b.status))?'disabled':''}>Edit</button>
-                <button data-cancel="${b.id}" ${(Date.now() > b.createdAt + DB.settings.editWindowHours*3600*1000 || b.status==='Cancelled')?'disabled':''}>Cancel</button>
-              </td>
-            </tr>`).join('')}
-          </tbody>
-        </table></div>`}
+        <div class="filter-bar" style="margin-bottom:16px">
+          <select id="hist-month"><option value="">All Months</option>${months.map((m,i)=>`<option value="${i}" ${String(i)===dashHistoryFilter.month?'selected':''}>${m}</option>`).join('')}</select>
+          <select id="hist-year"><option value="">All Years</option>${years.map(y=>`<option ${String(y)===dashHistoryFilter.year?'selected':''}>${y}</option>`).join('')}</select>
+        </div>
+        ${myBookingsTableHtml(filteredBookings)}`}
       </div>
       <div id="edit-booking-slot"></div>
+
+      <div class="panel">
+        <h3>Ask a Question</h3>
+        <p class="hint">Have something you'd like to ask our team? Submit it here — the answer will appear below once we reply.</p>
+        <form id="ask-question-form">
+          <div class="field"><label>Your Question</label><textarea required name="question" rows="2" placeholder="e.g. Can I add an extra night to my Maldives trip?"></textarea></div>
+          <button class="btn btn-primary">Submit Question</button>
+        </form>
+        <div style="margin-top:18px">
+          ${myQuestions.length===0? `<p class="muted" style="margin:0">You haven't asked any questions yet.</p>` :
+          myQuestions.map(q=>`
+            <div class="qa-item">
+              <div class="q">Q: ${q.question}</div>
+              <div class="muted" style="font-size:.78rem">${new Date(q.createdAt).toLocaleString()}</div>
+              ${q.answer? `<div class="a">A: ${q.answer}</div>` : `<span class="qa-status badge-pending" style="background:#FFF1DB;color:#C98A1E;display:inline-block;margin-top:8px">Awaiting answer</span>`}
+            </div>`).join('')}
+        </div>
+      </div>
+
       <div class="panel">
         <h3>Profile Settings</h3>
         <form id="profile-form">
@@ -922,7 +1002,31 @@ route('/dashboard', ()=>{
             <div class="field"><label>Full Name</label><input name="name" value="${c.name}"></div>
             <div class="field"><label>Email</label><input value="${c.email}" disabled></div>
           </div>
+          <div class="field"><label>Phone (optional)</label><input type="tel" name="phone" value="${c.phone||''}"></div>
+          <div class="field"><label>Profile Picture</label><input type="file" accept="image/*" data-fill="avatar"><input type="hidden" name="avatar" value="${c.avatar||''}">${c.avatar?`<img class="upload-thumb" src="${c.avatar}">`:''}</div>
           <button class="btn btn-primary">Save Changes</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h3>Change Password</h3>
+        <form id="cust-change-password-form">
+          <div class="field"><label>Current Password</label><input type="password" name="current" required></div>
+          <div class="field-row">
+            <div class="field"><label>New Password</label><input type="password" name="newPassword" minlength="6" required></div>
+            <div class="field"><label>Confirm New Password</label><input type="password" name="confirmPassword" minlength="6" required></div>
+          </div>
+          <button class="btn btn-primary">Update Password</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h3>Security Question</h3>
+        <p class="hint">Used to reset your password if you forget it.</p>
+        <form id="cust-change-security-form">
+          <div class="field"><label>Security Question</label><input name="question" value="${c.securityQuestion||''}" required></div>
+          <div class="field"><label>New Answer</label><input name="answer" required placeholder="Enter a new answer"></div>
+          <button class="btn btn-primary">Update Security Question</button>
         </form>
       </div>
     </div>
@@ -931,7 +1035,7 @@ route('/dashboard', ()=>{
 
 /* ------------------------------ admin ------------------------------------ */
 route('/admin/login', ()=>{
-  if(SESSION.isAdmin){ location.hash = '#/admin'; return ''; }
+  if(adminAuthed){ location.hash = '#/admin'; return ''; }
   return `
   <section class="section-tight">
     <div class="container auth-wrap">
@@ -966,14 +1070,14 @@ route('/admin/forgot', ()=>{
 });
 
 function adminGuard(){
-  if(!SESSION.isAdmin){ location.hash = '#/admin/login'; return false; }
+  if(!adminAuthed){ location.hash = '#/admin/login'; return false; }
   return true;
 }
 
 const adminNavGroups = [
   {label:'Overview', items:[['overview','📊 Dashboard']]},
-  {label:'Content', items:[['packages','🧳 Packages'],['bookings','🎫 Bookings'],['gallery','🖼 Gallery'],['reviews','⭐ Reviews'],['blog','📰 Blog'],['faqs','❓ FAQs']]},
-  {label:'People', items:[['customers','👥 Customers']]},
+  {label:'Content', items:[['packages','🧳 Packages'],['bookings','🎫 Bookings'],['gallery','🖼 Gallery'],['reviews','⭐ Reviews'],['blog','📰 Blog'],['faqs','❓ FAQs'],['questions','💬 Customer Questions']]},
+  {label:'People', items:[['customers','👥 Customers'],['messages','✉️ Messages']]},
   {label:'Store', items:[['coupons','🏷 Coupons']]},
   {label:'Configuration', items:[['settings','⚙️ Site Settings'],['account','🔐 Account & Security']]},
 ];
@@ -984,7 +1088,12 @@ function adminShell(active, body){
     <aside class="dash-sidebar">
       <div class="brand"><span class="brand-mark">✈</span><span class="brand-name">${DB.settings.siteName}</span></div>
       <nav class="dash-nav">
-        ${adminNavGroups.map(g=>`<div class="group-label">${g.label}</div>${g.items.map(([k,label])=>`<a href="#/admin/${k}" class="${active===k?'active':''}">${label}</a>`).join('')}`).join('')}
+        ${adminNavGroups.map(g=>`<div class="group-label">${g.label}</div>${g.items.map(([k,label])=>{
+          let unread = 0;
+          if(k==='messages') unread = DB.messages.filter(m=>!m.read).length;
+          if(k==='questions') unread = DB.questions.filter(q=>q.status==='pending').length;
+          return `<a href="#/admin/${k}" class="${active===k?'active':''}">${label}${unread?`<span class="nav-badge">${unread}</span>`:''}</a>`;
+        }).join('')}`).join('')}
         <div class="group-label">&nbsp;</div>
         <a href="#/" >🌐 View Site</a>
         <a href="#" id="admin-logout">🚪 Log Out</a>
@@ -1012,7 +1121,7 @@ route('/admin/overview', ()=>{
       <div class="kpi-card"><span>Reviews</span><b>${DB.reviews.length}</b></div>
       <div class="kpi-card"><span>Gallery Images</span><b>${DB.gallery.length}</b></div>
       <div class="kpi-card"><span>Pending Bookings</span><b>${DB.bookings.filter(b=>b.status==='Pending').length}</b></div>
-      <div class="kpi-card"><span>Active Packages</span><b>${DB.packages.filter(p=>p.status==='active').length}</b></div>
+      <div class="kpi-card"><span>Unread Messages</span><b>${DB.messages.filter(m=>!m.read).length}</b></div>
     </div>
     <div class="panel">
       <h3>Recent Activity</h3>
@@ -1099,6 +1208,7 @@ function pkgFormHtml(p){
     <div class="field"><label>Hotel</label><input name="hotel" value="${e.hotel||''}"></div>
   </div>
   <div class="field"><label>Cover Image URL</label><input name="image" value="${e.image}"></div>
+  <div class="field"><label>Or Upload From Device</label><input type="file" accept="image/*" data-fill="image">${e.image?`<img class="upload-thumb" src="${e.image}">`:''}</div>
   <div class="field"><label>Description</label><textarea name="description" rows="3">${e.description}</textarea></div>
   <div class="field"><label><input type="checkbox" name="featured" ${e.featured?'checked':''}> Featured on homepage</label></div>
   `;
@@ -1126,7 +1236,8 @@ route('/admin/gallery', ()=>{
     <div class="panel">
       <h3>Upload New Image</h3>
       <form id="gallery-add-form" class="field-row" style="align-items:end">
-        <div class="field"><label>Image URL</label><input name="url" required placeholder="https://..."></div>
+        <div class="field"><label>Image URL</label><input name="url" placeholder="https://..."></div>
+        <div class="field"><label>Or Upload From Device</label><input type="file" accept="image/*" data-fill="url"></div>
         <div class="field"><label>Category</label>
           <select name="category">${['Beaches','Mountains','Adventure','Wildlife','Cities','Honeymoon','Historical Places'].map(c=>`<option>${c}</option>`).join('')}</select>
         </div>
@@ -1179,8 +1290,9 @@ route('/admin/blog', ()=>{
       <form id="blog-add-form">
         <div class="field-row">
           <div class="field"><label>Title</label><input name="title" required></div>
-          <div class="field"><label>Image URL</label><input name="image" required></div>
+          <div class="field"><label>Image URL</label><input name="image"></div>
         </div>
+        <div class="field"><label>Or Upload From Device</label><input type="file" accept="image/*" data-fill="image"></div>
         <div class="field"><label>Excerpt</label><textarea name="excerpt" rows="2" required></textarea></div>
         <button class="btn btn-primary">Publish Article</button>
       </form>
@@ -1214,22 +1326,121 @@ route('/admin/faqs', ()=>{
   return adminShell('faqs', body);
 });
 
+route('/admin/questions', ()=>{
+  if(!adminGuard()) return '';
+  const list = DB.questions.slice().sort((a,b)=>b.createdAt-a.createdAt);
+  const body = `
+    <div class="dash-topbar"><h1>Customer Questions</h1><span class="muted">${DB.questions.filter(q=>q.status==='pending').length} awaiting reply</span></div>
+    <div class="panel">
+      ${list.length===0? `<div class="empty-state"><div class="em-icon">💬</div>No questions yet — questions customers ask from their dashboard will appear here.</div>` :
+      list.map(q=>`
+        <div class="qa-item">
+          <div class="q">${q.customerName} <span class="muted" style="font-weight:400">(${q.customerEmail})</span> asked:</div>
+          <p style="margin:6px 0">${q.question}</p>
+          <div class="muted" style="font-size:.78rem;margin-bottom:10px">${new Date(q.createdAt).toLocaleString()} · <span class="badge badge-${q.status==='answered'?'confirmed':'pending'}">${q.status==='answered'?'Answered':'Pending'}</span></div>
+          <form class="reply-question-form" data-qid="${q.id}">
+            <div class="field"><label>Your Reply</label><textarea name="reply" rows="2" required>${q.answer||''}</textarea></div>
+            <button class="btn btn-primary btn-sm">Send Reply</button>
+          </form>
+        </div>`).join('')}
+    </div>
+  `;
+  return adminShell('questions', body);
+});
+
 route('/admin/customers', ()=>{
   if(!adminGuard()) return '';
   const body = `
     <div class="dash-topbar"><h1>Customer Management</h1></div>
     <div class="panel">
       <div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Bookings</th><th>Actions</th></tr></thead>
+        <thead><tr><th></th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Bookings</th><th>Actions</th></tr></thead>
         <tbody>
-        ${DB.customers.map(c=>`<tr><td>${c.name}</td><td>${c.email}</td><td>${fmtDate(c.joined)}</td><td>${DB.bookings.filter(b=>b.customerEmail===c.email).length}</td>
-          <td class="row-actions"><button data-del-cust="${c.email}">Delete</button></td></tr>`).join('')}
+        ${DB.customers.map(c=>`<tr>
+          <td>${c.avatar?`<img src="${c.avatar}" style="width:34px;height:34px;border-radius:50%;object-fit:cover">`:`<div class="avatar-circle-placeholder" style="width:34px;height:34px;font-size:.85rem">${c.name.charAt(0).toUpperCase()}</div>`}</td>
+          <td>${c.name}</td><td>${c.email}</td><td>${c.phone||'—'}</td><td>${fmtDate(c.joined)}</td><td>${DB.bookings.filter(b=>b.customerEmail===c.email).length}</td>
+          <td class="row-actions"><a class="btn btn-sm" href="#/admin/customer/${encodeURIComponent(c.email)}">View History</a><button data-del-cust="${c.email}">Delete</button></td></tr>`).join('')}
         </tbody>
       </table></div>
       ${DB.customers.length===0?`<div class="empty-state"><div class="em-icon">👥</div>No registered customers yet.</div>`:''}
     </div>
   `;
   return adminShell('customers', body);
+});
+
+let adminCustHistoryFilter = {month:'', year:''};
+route('/admin/customer/:email', (args)=>{
+  if(!adminGuard()) return '';
+  const email = args.email;
+  const c = DB.customers.find(x=>x.email===email);
+  if(!c) return notFoundPage();
+  const allBookings = DB.bookings.filter(b=>b.customerEmail===email).sort((a,b)=>b.createdAt-a.createdAt);
+  const myQuestions = DB.questions.filter(q=>q.customerEmail===email).sort((a,b)=>b.createdAt-a.createdAt);
+  const years = [...new Set(allBookings.map(b=>new Date(b.travelDate).getFullYear()))].sort((a,b)=>b-a);
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  let filtered = allBookings;
+  if(adminCustHistoryFilter.month !== '') filtered = filtered.filter(b=>new Date(b.travelDate).getMonth()===Number(adminCustHistoryFilter.month));
+  if(adminCustHistoryFilter.year !== '') filtered = filtered.filter(b=>new Date(b.travelDate).getFullYear()===Number(adminCustHistoryFilter.year));
+  const body = `
+    <div class="dash-topbar"><h1>Customer: ${c.name}</h1><a href="#/admin/customers" class="btn btn-ghost">← Back to Customers</a></div>
+    <div class="panel" style="display:flex;gap:18px;align-items:center">
+      ${c.avatar?`<img class="avatar-lg" src="${c.avatar}">`:`<div class="avatar-circle-placeholder">${c.name.charAt(0).toUpperCase()}</div>`}
+      <div>
+        <div><b>${c.name}</b></div>
+        <div class="muted">${c.email}${c.phone?` · ${c.phone}`:''}</div>
+        <div class="muted">Joined ${fmtDate(c.joined)} · Security question: "${c.securityQuestion||'—'}"</div>
+      </div>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><span>Total Bookings (All Time)</span><b>${allBookings.length}</b></div>
+      <div class="kpi-card"><span>Completed</span><b>${allBookings.filter(b=>b.status==='Completed').length}</b></div>
+      <div class="kpi-card"><span>Cancelled</span><b>${allBookings.filter(b=>b.status==='Cancelled').length}</b></div>
+      <div class="kpi-card"><span>Questions Asked</span><b>${myQuestions.length}</b></div>
+    </div>
+    <div class="panel">
+      <h3>Booking History</h3>
+      <div class="filter-bar" style="margin-bottom:16px">
+        <select id="admin-hist-month"><option value="">All Months</option>${months.map((m,i)=>`<option value="${i}" ${String(i)===adminCustHistoryFilter.month?'selected':''}>${m}</option>`).join('')}</select>
+        <select id="admin-hist-year"><option value="">All Years</option>${years.map(y=>`<option ${String(y)===adminCustHistoryFilter.year?'selected':''}>${y}</option>`).join('')}</select>
+      </div>
+      ${bookingsTable(filtered)}
+    </div>
+    <div class="panel">
+      <h3>Questions Asked</h3>
+      ${myQuestions.length===0? `<p class="muted" style="margin:0">No questions asked yet.</p>` :
+      myQuestions.map(q=>`<div class="qa-item"><div class="q">${q.question}</div>${q.answer?`<div class="a">A: ${q.answer}</div>`:`<span class="qa-status" style="background:#FFF1DB;color:#C98A1E">Awaiting reply</span>`}</div>`).join('')}
+    </div>
+  `;
+  return adminShell('customers', body);
+});
+
+route('/admin/messages', ()=>{
+  if(!adminGuard()) return '';
+  const list = DB.messages.slice().sort((a,b)=>b.createdAt-a.createdAt);
+  const body = `
+    <div class="dash-topbar"><h1>Customer Messages</h1><span class="muted">${DB.messages.filter(m=>!m.read).length} unread</span></div>
+    <div class="panel">
+      ${list.length===0? `<div class="empty-state"><div class="em-icon">✉️</div>No messages yet — submissions from the Contact page will appear here.</div>` : `
+      <div class="table-wrap"><table>
+        <thead><tr><th>From</th><th>Subject</th><th>Message</th><th>Received</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+        ${list.map(m=>`
+          <tr>
+            <td>${m.name}<br><span class="muted">${m.email}</span></td>
+            <td>${m.subject}</td>
+            <td style="white-space:normal;max-width:320px">${m.message}</td>
+            <td class="muted">${new Date(m.createdAt).toLocaleString()}</td>
+            <td><span class="badge badge-${m.read?'completed':'pending'}">${m.read?'Read':'Unread'}</span></td>
+            <td class="row-actions">
+              <button data-toggle-msg="${m.id}">${m.read?'Mark Unread':'Mark Read'}</button>
+              <button data-del-msg="${m.id}">Delete</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`}
+    </div>
+  `;
+  return adminShell('messages', body);
 });
 
 route('/admin/coupons', ()=>{
@@ -1274,6 +1485,13 @@ route('/admin/settings', ()=>{
           <div class="field"><label>Vision</label><textarea name="vision" rows="2">${s.vision}</textarea></div>
         </div>
         <div class="field"><label>Company Story</label><textarea name="story" rows="2">${s.story}</textarea></div>
+        <div class="field"><label>Homepage Hero Image URL</label><input name="heroImage" value="${s.heroImage}"></div>
+        <div class="field"><label>Or Upload From Device</label><input type="file" accept="image/*" data-fill="heroImage"><img class="upload-thumb" src="${s.heroImage}"></div>
+      </div>
+      <div class="panel">
+        <h3>Legal Pages</h3>
+        <div class="field"><label>Privacy Policy Text</label><textarea name="privacyText" rows="4">${s.privacyText}</textarea></div>
+        <div class="field"><label>Terms &amp; Conditions Text</label><textarea name="termsText" rows="4">${s.termsText}</textarea></div>
       </div>
       <div class="panel">
         <h3>Booking Rules</h3>
@@ -1363,6 +1581,25 @@ route('/admin/account', ()=>{
   return adminShell('account', body);
 });
 
+/* ------------------------------ password visibility ------------------------ */
+function wirePasswordToggles(root){
+  (root||document).querySelectorAll('input[type="password"]:not([data-pw-wired])').forEach(input=>{
+    input.dataset.pwWired = '1';
+    const wrap = document.createElement('div');
+    wrap.className = 'pw-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'pw-toggle'; btn.textContent = '👁'; btn.setAttribute('aria-label','Show password');
+    wrap.appendChild(btn);
+    btn.addEventListener('click', ()=>{
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? '🙈' : '👁';
+    });
+  });
+}
+
 /* ============================ page scripts =============================== */
 function wirePageScripts(){
   // theme toggle handled globally, not here
@@ -1438,7 +1675,8 @@ function wirePageScripts(){
   if(reviewForm) reviewForm.addEventListener('submit', e=>{
     e.preventDefault();
     const fd = new FormData(reviewForm);
-    DB.reviews.push({id:uid('REV'), name:fd.get('name'), country:fd.get('country'), rating:Number(fd.get('rating')), text:fd.get('text'), approved:false, avatar:`https://i.pravatar.cc/100?u=${encodeURIComponent(fd.get('name'))}`});
+    const avatar = fd.get('avatar') || `https://i.pravatar.cc/100?u=${encodeURIComponent(fd.get('name'))}`;
+    DB.reviews.push({id:uid('REV'), name:fd.get('name'), country:fd.get('country'), rating:Number(fd.get('rating')), text:fd.get('text'), approved:false, avatar});
     saveDB(); logActivity(`New review submitted by ${fd.get('name')}`);
     toast('Thanks! Your review will appear after admin approval.', 'success');
     reviewForm.reset();
@@ -1448,8 +1686,11 @@ function wirePageScripts(){
   const contactForm = document.getElementById('contact-form');
   if(contactForm) contactForm.addEventListener('submit', e=>{
     e.preventDefault();
+    const fd = new FormData(contactForm);
+    DB.messages.unshift({id:uid('MSG'), name:fd.get('name'), email:fd.get('email'), subject:fd.get('subject')||'(No subject)', message:fd.get('message'), createdAt:Date.now(), read:false});
+    saveDB();
     toast('Message sent! Our team will get back to you soon.', 'success');
-    logActivity(`New contact inquiry from ${new FormData(contactForm).get('name')}`);
+    logActivity(`New contact message from ${fd.get('name')}`);
     contactForm.reset();
   });
 
@@ -1515,13 +1756,36 @@ function wirePageScripts(){
       toast('Booking cancelled.', 'success'); render();
     });
   });
+  const histMonth = document.getElementById('hist-month');
+  const histYear = document.getElementById('hist-year');
+  if(histMonth) histMonth.addEventListener('change', ()=>{ dashHistoryFilter.month = histMonth.value; render(); });
+  if(histYear) histYear.addEventListener('change', ()=>{ dashHistoryFilter.year = histYear.value; render(); });
+
   const logoutBtn = document.getElementById('logout-btn');
   if(logoutBtn) logoutBtn.addEventListener('click', ()=>{ SESSION.customerEmail=null; saveSession(); toast('Logged out'); location.hash='#/'; });
 
   const profileForm = document.getElementById('profile-form');
   if(profileForm) profileForm.addEventListener('submit', e=>{
-    e.preventDefault(); const c = currentCustomer(); c.name = new FormData(profileForm).get('name');
+    e.preventDefault(); const c = currentCustomer(); const fd = new FormData(profileForm);
+    c.name = fd.get('name'); c.phone = fd.get('phone')||''; c.avatar = fd.get('avatar')||c.avatar||'';
     saveDB(); toast('Profile updated.', 'success'); render();
+  });
+
+  const custChangePasswordForm = document.getElementById('cust-change-password-form');
+  if(custChangePasswordForm) custChangePasswordForm.addEventListener('submit', async e=>{
+    e.preventDefault(); const c = currentCustomer(); const fd = new FormData(custChangePasswordForm);
+    const curHash = await sha256(fd.get('current'));
+    if(curHash !== c.passwordHash){ toast('Current password is incorrect.', 'error'); return; }
+    if(fd.get('newPassword') !== fd.get('confirmPassword')){ toast('New passwords do not match.', 'error'); return; }
+    c.passwordHash = await sha256(fd.get('newPassword'));
+    saveDB(); toast('Password updated.', 'success'); custChangePasswordForm.reset();
+  });
+
+  const custChangeSecurityForm = document.getElementById('cust-change-security-form');
+  if(custChangeSecurityForm) custChangeSecurityForm.addEventListener('submit', async e=>{
+    e.preventDefault(); const c = currentCustomer(); const fd = new FormData(custChangeSecurityForm);
+    c.securityQuestion = fd.get('question'); c.securityAnswerHash = await sha256(fd.get('answer').toLowerCase().trim());
+    saveDB(); toast('Security question updated.', 'success'); custChangeSecurityForm.reset();
   });
 
   // ---- Customer auth
@@ -1546,11 +1810,56 @@ function wirePageScripts(){
     const email = fd.get('email').toLowerCase().trim();
     if(DB.customers.some(c=>c.email===email)){ toast('An account with this email already exists.', 'error'); return; }
     const passwordHash = await sha256(fd.get('password'));
-    DB.customers.push({name:fd.get('name'), email, passwordHash, joined:Date.now()});
+    const securityAnswerHash = await sha256(fd.get('securityAnswer').toLowerCase().trim());
+    DB.customers.push({
+      name:fd.get('name'), email, phone:fd.get('phone')||'', passwordHash, avatar:fd.get('avatar')||'',
+      securityQuestion:fd.get('securityQuestion'), securityAnswerHash, joined:Date.now()
+    });
     saveDB(); logActivity(`New customer registered: ${fd.get('name')}`);
     SESSION.customerEmail = email; saveSession();
     toast('Account created! Welcome to ' + DB.settings.siteName + '.', 'success');
     location.hash = '#/dashboard';
+  });
+
+  // ---- Customer forgot password (own custom security question)
+  const forgotEmailForm = document.getElementById('forgot-email-form');
+  if(forgotEmailForm) forgotEmailForm.addEventListener('submit', e=>{
+    e.preventDefault();
+    const email = new FormData(forgotEmailForm).get('email').toLowerCase().trim();
+    const c = DB.customers.find(x=>x.email===email);
+    const slot = document.getElementById('forgot-step2');
+    if(!c){ toast('No account found with that email.', 'error'); return; }
+    forgotEmailForm.querySelector('input[name="email"]').disabled = true;
+    forgotEmailForm.querySelector('button').style.display='none';
+    slot.innerHTML = `
+      <form id="forgot-reset-form" style="margin-top:6px">
+        <div class="field"><label>${c.securityQuestion}</label><input required name="answer"></div>
+        <div class="field"><label>New Password</label><input required type="password" minlength="6" name="newPassword"></div>
+        <button class="btn btn-cta btn-block">Reset Password</button>
+      </form>`;
+    wirePasswordToggles(slot);
+    document.getElementById('forgot-reset-form').addEventListener('submit', async ev=>{
+      ev.preventDefault();
+      const fd2 = new FormData(ev.target);
+      const ansHash = await sha256(fd2.get('answer').toLowerCase().trim());
+      if(ansHash !== c.securityAnswerHash){ toast('That answer doesn\'t match our records.', 'error'); return; }
+      c.passwordHash = await sha256(fd2.get('newPassword'));
+      saveDB(); logActivity(`Customer ${c.email} reset their password`);
+      toast('Password reset! You can now log in.', 'success');
+      location.hash = '#/login';
+    });
+  });
+
+  // ---- Ask a Question (customer dashboard)
+  const askForm = document.getElementById('ask-question-form');
+  if(askForm) askForm.addEventListener('submit', e=>{
+    e.preventDefault();
+    const c = currentCustomer();
+    const q = new FormData(askForm).get('question');
+    DB.questions.unshift({id:uid('QST'), customerEmail:c.email, customerName:c.name, question:q, answer:'', status:'pending', createdAt:Date.now()});
+    saveDB(); logActivity(`New question submitted by ${c.name}`);
+    toast('Question sent! You\'ll see the answer here once our team replies.', 'success');
+    askForm.reset(); render();
   });
 
   // ---- Admin auth
@@ -1560,7 +1869,7 @@ function wirePageScripts(){
     const fd = new FormData(adminLoginForm);
     const hash = await sha256(fd.get('password'));
     if(fd.get('username') === DB.admin.username && hash === DB.admin.passwordHash){
-      SESSION.isAdmin = true; saveSession();
+      adminAuthed = true;
       logActivity('Admin logged in');
       toast('Welcome back, ' + DB.admin.username + '!', 'success');
       location.hash = '#/admin/overview';
@@ -1582,7 +1891,7 @@ function wirePageScripts(){
   });
 
   const adminLogout = document.getElementById('admin-logout');
-  if(adminLogout) adminLogout.addEventListener('click', e=>{ e.preventDefault(); SESSION.isAdmin=false; saveSession(); location.hash='#/admin/login'; });
+  if(adminLogout) adminLogout.addEventListener('click', e=>{ e.preventDefault(); adminAuthed=false; location.hash='#/admin/login'; });
 
   // ---- Admin: bookings status change
   document.querySelectorAll('[data-status]').forEach(btn=>{
@@ -1636,6 +1945,7 @@ function wirePageScripts(){
   const galleryAddForm = document.getElementById('gallery-add-form');
   if(galleryAddForm) galleryAddForm.addEventListener('submit', e=>{
     e.preventDefault(); const fd = new FormData(galleryAddForm);
+    if(!fd.get('url')){ toast('Please add an image URL or upload one from your device.', 'error'); return; }
     DB.gallery.unshift({id:uid('IMG'), url:fd.get('url'), category:fd.get('category')});
     saveDB(); toast('Image added.', 'success'); render();
   });
@@ -1655,7 +1965,8 @@ function wirePageScripts(){
   const blogAddForm = document.getElementById('blog-add-form');
   if(blogAddForm) blogAddForm.addEventListener('submit', e=>{
     e.preventDefault(); const fd = new FormData(blogAddForm);
-    DB.blog.unshift({id:uid('BLG'), title:fd.get('title'), image:fd.get('image'), excerpt:fd.get('excerpt'), date:new Date().toISOString().slice(0,10)});
+    const image = fd.get('image') || 'https://images.unsplash.com/photo-1500835556837-99ac94a94552?auto=format&fit=crop&w=700&q=60';
+    DB.blog.unshift({id:uid('BLG'), title:fd.get('title'), image, excerpt:fd.get('excerpt'), date:new Date().toISOString().slice(0,10)});
     saveDB(); toast('Article published.', 'success'); render();
   });
   document.querySelectorAll('[data-del-blog]').forEach(btn=>btn.addEventListener('click', ()=>{
@@ -1673,10 +1984,35 @@ function wirePageScripts(){
     DB.faqs = DB.faqs.filter(f=>f.id!==btn.dataset.delFaq); saveDB(); toast('FAQ deleted.', 'success'); render();
   }));
 
+  // ---- Admin: reply to customer questions
+  document.querySelectorAll('.reply-question-form').forEach(f=>{
+    f.addEventListener('submit', e=>{
+      e.preventDefault();
+      const q = DB.questions.find(x=>x.id===f.dataset.qid);
+      q.answer = new FormData(f).get('reply'); q.status = 'answered';
+      saveDB(); logActivity(`Replied to a question from ${q.customerName}`);
+      toast('Reply sent.', 'success'); render();
+    });
+  });
+
+  // ---- Admin: customer detail history filters
+  const adminHistMonth = document.getElementById('admin-hist-month');
+  const adminHistYear = document.getElementById('admin-hist-year');
+  if(adminHistMonth) adminHistMonth.addEventListener('change', ()=>{ adminCustHistoryFilter.month = adminHistMonth.value; render(); });
+  if(adminHistYear) adminHistYear.addEventListener('change', ()=>{ adminCustHistoryFilter.year = adminHistYear.value; render(); });
+
   // ---- Admin: customers
   document.querySelectorAll('[data-del-cust]').forEach(btn=>btn.addEventListener('click', ()=>{
     if(!confirm('Delete this customer?')) return;
     DB.customers = DB.customers.filter(c=>c.email!==btn.dataset.delCust); saveDB(); toast('Customer deleted.', 'success'); render();
+  }));
+
+  // ---- Admin: messages
+  document.querySelectorAll('[data-toggle-msg]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const m = DB.messages.find(x=>x.id===btn.dataset.toggleMsg); m.read = !m.read; saveDB(); render();
+  }));
+  document.querySelectorAll('[data-del-msg]').forEach(btn=>btn.addEventListener('click', ()=>{
+    DB.messages = DB.messages.filter(m=>m.id!==btn.dataset.delMsg); saveDB(); toast('Message deleted.', 'success'); render();
   }));
 
   // ---- Admin: coupons
@@ -1697,6 +2033,8 @@ function wirePageScripts(){
     Object.assign(DB.settings, {
       siteName:fd.get('siteName'), tagline:fd.get('tagline'), aboutText:fd.get('aboutText'),
       mission:fd.get('mission'), vision:fd.get('vision'), story:fd.get('story'),
+      heroImage:fd.get('heroImage')||DB.settings.heroImage,
+      privacyText:fd.get('privacyText'), termsText:fd.get('termsText'),
       editWindowHours:Number(fd.get('editWindowHours'))||24,
       address:fd.get('address'), phone:fd.get('phone'), email:fd.get('email'), hours:fd.get('hours'), mapQuery:fd.get('mapQuery'),
       currencySymbol:fd.get('currencySymbol'), currency:fd.get('currency'),
@@ -1728,6 +2066,34 @@ function wirePageScripts(){
     DB.admin.securityQuestion = fd.get('question');
     DB.admin.securityAnswerHash = await sha256(fd.get('answer').toLowerCase().trim());
     saveDB(); logActivity('Admin security question updated'); toast('Security question updated.', 'success'); changeSecurityForm.reset();
+  });
+
+  wirePasswordToggles(document);
+}
+
+/* ------------------------ device image upload (generic) -------------------- */
+// Any <input type="file" data-fill="fieldName"> inside a <form> will, on
+// selection, read the image as a data URL and write it into that form's
+// [name="fieldName"] field, plus show a thumbnail preview. This lets every
+// admin image field (and the review photo field) accept an uploaded file
+// from the device instead of only a pasted URL.
+function setupImageUploads(){
+  document.addEventListener('change', (e)=>{
+    const input = e.target;
+    if(!(input.tagName==='INPUT' && input.type==='file' && input.dataset.fill)) return;
+    const file = input.files && input.files[0];
+    if(!file) return;
+    if(file.size > 4*1024*1024){ toast('Please choose an image smaller than 4MB.', 'error'); input.value=''; return; }
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const form = input.closest('form');
+      const target = form ? form.querySelector(`[name="${input.dataset.fill}"]`) : null;
+      if(target) target.value = reader.result;
+      let preview = input.parentElement.querySelector('.upload-thumb');
+      if(!preview){ preview = document.createElement('img'); preview.className='upload-thumb'; input.parentElement.appendChild(preview); }
+      preview.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1768,6 +2134,7 @@ function initChrome(){
   loadDB();
   await ensureAdminSeed();
   initChrome();
+  setupImageUploads();
   await render();
 
   setTimeout(()=>{ loader.style.transition='opacity .4s ease'; loader.style.opacity='0'; setTimeout(()=>loader.remove(), 400); }, 350);
