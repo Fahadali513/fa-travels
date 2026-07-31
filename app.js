@@ -139,7 +139,7 @@ function seedGallery(){
     'photo-1500835556837-99ac94a94552','photo-1512453979798-5ea266f8880c','photo-1524231757912-21f4fe3a7200',
     'photo-1518684079-3c830dcef090','photo-1544551763-46a013bb70d5','photo-1502786129293-79981df4e689',
     'photo-1537996194471-e657df975ab4','photo-1552733407-5d5c46c3bb3b','photo-1573843981267-be1999ff37cd'];
-  return photos.map((p,i)=>({id:uid('IMG'), url:`https://images.unsplash.com/${p}?auto=format&fit=crop&w=600&q=60`, category:cats[i%cats.length]}));
+  return photos.map((p,i)=>({id:uid('IMG'), url:`https://images.unsplash.com/${p}?auto=format&fit=crop&w=600&q=60`, category:cats[i%cats.length], approved:true}));
 }
 
 function seedReviews(){
@@ -163,9 +163,9 @@ function seedFaqs(){
 
 function seedBlog(){
   return [
-    {id:uid('BLG'), title:'5 Reasons the Maldives Should Be Your Next Honeymoon', excerpt:'From overwater villas to private sandbanks, here is why couples fall in love with the Maldives.', image:'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?auto=format&fit=crop&w=700&q=60', date:'2026-06-02'},
-    {id:uid('BLG'), title:'A First-Timer\u2019s Guide to Umrah Travel', excerpt:'Everything you need to know before your first Umrah journey, from visas to packing lists.', image:'https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?auto=format&fit=crop&w=700&q=60', date:'2026-05-18'},
-    {id:uid('BLG'), title:'Best Time to See Cappadocia\u2019s Hot Air Balloons', excerpt:'Season-by-season guide to catching the perfect sunrise balloon ride.', image:'https://images.unsplash.com/photo-1526772662000-3f88f10405ff?auto=format&fit=crop&w=700&q=60', date:'2026-04-27'},
+    {id:uid('BLG'), title:'5 Reasons the Maldives Should Be Your Next Honeymoon', excerpt:'From overwater villas to private sandbanks, here is why couples fall in love with the Maldives.', image:'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?auto=format&fit=crop&w=700&q=60', date:'2026-06-02', author:'Fahad Travels Team', approved:true},
+    {id:uid('BLG'), title:'A First-Timer\u2019s Guide to Umrah Travel', excerpt:'Everything you need to know before your first Umrah journey, from visas to packing lists.', image:'https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?auto=format&fit=crop&w=700&q=60', date:'2026-05-18', author:'Fahad Travels Team', approved:true},
+    {id:uid('BLG'), title:'Best Time to See Cappadocia\u2019s Hot Air Balloons', excerpt:'Season-by-season guide to catching the perfect sunrise balloon ride.', image:'https://images.unsplash.com/photo-1526772662000-3f88f10405ff?auto=format&fit=crop&w=700&q=60', date:'2026-04-27', author:'Fahad Travels Team', approved:true},
   ];
 }
 
@@ -212,6 +212,12 @@ function loadDB(){
     if(!DB.messages) DB.messages = [];
     if(!DB.questions) DB.questions = [];
     DB.settings = Object.assign({}, fresh.settings, DB.settings);
+    (DB.gallery||[]).forEach(g=>{ if(g.approved===undefined) g.approved = true; });
+    (DB.blog||[]).forEach(b=>{ if(b.approved===undefined) b.approved = true; if(!b.author) b.author = 'Fahad Travels Team'; });
+    (DB.customers||[]).forEach(c=>{
+      if(c.deleted===undefined) c.deleted = false;
+      if(!c.username) c.username = 'user' + Math.random().toString(36).slice(2,7);
+    });
     saveDB();
     return;
   }
@@ -361,7 +367,7 @@ route('/', ()=>{
   const featured = DB.packages.filter(p=>p.featured && p.status==='active').slice(0,6);
   const destinations = [...new Map(DB.packages.map(p=>[p.destination, p])).values()].slice(0,6);
   const reviews = DB.reviews.filter(r=>r.approved).slice(0,3);
-  const blog = DB.blog.slice(0,3);
+  const blog = DB.blog.filter(b=>b.approved!==false).slice(0,3);
 
   return `
   <section class="hero" style="background-image:linear-gradient(rgba(8,20,40,.82),rgba(8,20,40,.88)), url('${s.heroImage}');background-size:cover;background-position:center;">
@@ -497,7 +503,7 @@ route('/', ()=>{
     <div class="container">
       <div class="section-head reveal"><div class="eyebrow">Gallery</div><h2>Moments From Our Trips</h2></div>
       <div class="grid grid-4">
-        ${DB.gallery.slice(0,8).map(g=>`<a href="#/gallery" class="card reveal" style="height:150px;overflow:hidden"><img src="${g.url}" style="width:100%;height:100%;object-fit:cover" loading="lazy"></a>`).join('')}
+        ${DB.gallery.filter(g=>g.approved!==false).slice(0,8).map(g=>`<a href="#/gallery" class="card reveal" style="height:150px;overflow:hidden"><img src="${g.url}" style="width:100%;height:100%;object-fit:cover" loading="lazy"></a>`).join('')}
       </div>
       <div style="text-align:center;margin-top:30px"><a href="#/gallery" class="btn btn-ghost">View Full Gallery →</a></div>
     </div>
@@ -743,17 +749,19 @@ route('/booking-confirmed/:id', (args)=>{
 });
 
 route('/gallery', ()=>{
-  const cats = ['All', ...new Set(DB.gallery.map(g=>g.category))];
+  const approvedPhotos = DB.gallery.filter(g=>g.approved!==false);
+  const cats = ['All', ...new Set(approvedPhotos.map(g=>g.category))];
   return `
   <section class="section-tight">
     <div class="container">
       <div class="breadcrumb"><a href="#/">Home</a> / Gallery</div>
       <div class="section-head" style="margin-bottom:20px"><div class="eyebrow">Gallery</div><h1>Moments Worth Sharing</h1></div>
-      <div class="pill-row" id="gallery-filters" style="margin-bottom:20px">
+      <p class="muted" style="text-align:center;margin-top:-10px">Have a great travel photo? <a href="#/dashboard">Log in and share it</a> — approved photos appear here with your name.</p>
+      <div class="pill-row" id="gallery-filters" style="margin:20px 0">
         ${cats.map((c,i)=>`<button class="pill ${i===0?'active':''}" data-cat="${c}">${c}</button>`).join('')}
       </div>
       <div class="masonry" id="gallery-grid">
-        ${DB.gallery.map(g=>`<div class="m-item" data-cat="${g.category}"><img src="${g.url}" loading="lazy" data-full="${g.url}"></div>`).join('')}
+        ${approvedPhotos.map(g=>`<div class="m-item" data-cat="${g.category}"><img src="${g.url}" loading="lazy" data-full="${g.url}">${g.uploadedBy?`<div class="gallery-credit">📷 @${g.uploadedBy}</div>`:''}</div>`).join('')}
       </div>
     </div>
   </section>`;
@@ -793,16 +801,18 @@ route('/reviews', ()=>{
 });
 
 route('/blog', ()=>{
+  const posts = DB.blog.filter(b=>b.approved!==false).sort((a,b)=>new Date(b.date)-new Date(a.date));
   return `
   <section class="section-tight">
     <div class="container">
       <div class="breadcrumb"><a href="#/">Home</a> / Blog</div>
-      <div class="section-head" style="margin-bottom:26px"><div class="eyebrow">Blog</div><h1>Travel Tips &amp; Stories</h1></div>
+      <div class="section-head" style="margin-bottom:12px"><div class="eyebrow">Blog</div><h1>Travel Tips &amp; Stories</h1></div>
+      <p class="muted" style="text-align:center;margin-top:-10px;margin-bottom:26px">Been on a trip with us? <a href="#/dashboard">Share your story</a> — approved stories are published here with your name.</p>
       <div class="grid grid-3">
-        ${DB.blog.map(b=>`
+        ${posts.map(b=>`
           <div class="card reveal">
             <div class="pkg-media" style="height:180px"><img src="${b.image}"></div>
-            <div class="pkg-body"><div class="pkg-dest">${fmtDate(b.date)}</div><div class="pkg-title" style="font-size:1.1rem">${b.title}</div><p class="pkg-desc">${b.excerpt}</p></div>
+            <div class="pkg-body"><div class="pkg-dest">${fmtDate(b.date)}${b.author?` · by ${b.authorEmail?'@'+b.author:b.author}`:''}</div><div class="pkg-title" style="font-size:1.1rem">${b.title}</div><p class="pkg-desc">${b.excerpt}</p></div>
           </div>`).join('')}
       </div>
     </div>
@@ -879,6 +889,7 @@ route('/register', ()=>{
         <div class="eyebrow">Create Account</div><h1 style="font-size:1.5rem">Join ${DB.settings.siteName}</h1>
         <form id="register-form">
           <div class="field"><label>Full Name</label><input required name="name"></div>
+          <div class="field"><label>Username <span class="muted" style="font-weight:400">(unique nickname — shown on photos/stories you share)</span></label><input required name="username" pattern="[A-Za-z0-9_\.]{3,20}" title="3-20 characters: letters, numbers, underscore or dot" placeholder="e.g. fahad_travels22"></div>
           <div class="field"><label>Email</label><input required type="email" name="email"></div>
           <div class="field"><label>Phone (optional)</label><input type="tel" name="phone" placeholder="e.g. +92 300 1234567"></div>
           <div class="field"><label>Password</label><input required type="password" name="password" minlength="6"></div>
@@ -956,7 +967,7 @@ route('/dashboard', ()=>{
       <div class="dash-topbar">
         <div class="dash-welcome">
           ${c.avatar? `<img class="avatar-lg" src="${c.avatar}">` : `<div class="avatar-circle-placeholder">${c.name.charAt(0).toUpperCase()}</div>`}
-          <div><div class="eyebrow">Customer Dashboard</div><h1 style="margin:0">Welcome, ${c.name}</h1></div>
+          <div><div class="eyebrow">Customer Dashboard</div><h1 style="margin:0">Welcome, ${c.name}</h1><span class="muted" style="font-size:.82rem">@${c.username}</span></div>
         </div>
         <button class="btn btn-ghost" id="logout-btn">Log Out</button>
       </div>
@@ -996,12 +1007,36 @@ route('/dashboard', ()=>{
       </div>
 
       <div class="panel">
+        <h3>Share a Photo to Our Gallery</h3>
+        <p class="hint">Your photo will show your name and appear publicly once approved by our team.</p>
+        <form id="share-photo-form">
+          <div class="field"><label>Photo</label><input required type="file" accept="image/*" data-fill="photo"><input type="hidden" name="photo" required></div>
+          <div class="field"><label>Category</label>
+            <select name="category">${['Beaches','Mountains','Adventure','Wildlife','Cities','Honeymoon','Historical Places'].map(cat=>`<option>${cat}</option>`).join('')}</select>
+          </div>
+          <button class="btn btn-primary">Submit Photo</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h3>Share Your Travel Story</h3>
+        <p class="hint">Write about your trip and it'll appear on our Blog page (with your name) once approved.</p>
+        <form id="share-blog-form">
+          <div class="field"><label>Title</label><input required name="title" placeholder="e.g. My Unforgettable Week in Bali"></div>
+          <div class="field"><label>Cover Photo</label><input required type="file" accept="image/*" data-fill="image"><input type="hidden" name="image" required></div>
+          <div class="field"><label>Your Story</label><textarea required name="story" rows="4" placeholder="Tell us about your experience..."></textarea></div>
+          <button class="btn btn-primary">Submit Story</button>
+        </form>
+      </div>
+
+      <div class="panel">
         <h3>Profile Settings</h3>
         <form id="profile-form">
           <div class="field-row">
             <div class="field"><label>Full Name</label><input name="name" value="${c.name}"></div>
-            <div class="field"><label>Email</label><input value="${c.email}" disabled></div>
+            <div class="field"><label>Username</label><input name="username" value="${c.username}"></div>
           </div>
+          <div class="field"><label>Email</label><input value="${c.email}" disabled></div>
           <div class="field"><label>Phone (optional)</label><input type="tel" name="phone" value="${c.phone||''}"></div>
           <div class="field"><label>Profile Picture</label><input type="file" accept="image/*" data-fill="avatar"><input type="hidden" name="avatar" value="${c.avatar||''}">${c.avatar?`<img class="upload-thumb" src="${c.avatar}">`:''}</div>
           <button class="btn btn-primary">Save Changes</button>
@@ -1028,6 +1063,12 @@ route('/dashboard', ()=>{
           <div class="field"><label>New Answer</label><input name="answer" required placeholder="Enter a new answer"></div>
           <button class="btn btn-primary">Update Security Question</button>
         </form>
+      </div>
+
+      <div class="panel" style="border-color:#F3C9C2">
+        <h3 style="color:var(--danger)">Danger Zone</h3>
+        <p class="hint">Deleting your account signs you out and blocks future logins with this email. Your booking records are kept for our business records and remain visible to our team.</p>
+        <button class="btn btn-danger" id="delete-account-btn">Delete My Account</button>
       </div>
     </div>
   </section>`;
@@ -1231,6 +1272,7 @@ route('/admin/packages', ()=>{
 
 route('/admin/gallery', ()=>{
   if(!adminGuard()) return '';
+  const pending = DB.gallery.filter(g=>g.approved===false);
   const body = `
     <div class="dash-topbar"><h1>Gallery Management</h1></div>
     <div class="panel">
@@ -1244,13 +1286,28 @@ route('/admin/gallery', ()=>{
         <button class="btn btn-primary" style="height:44px">Add Image</button>
       </form>
     </div>
+    ${pending.length? `
+    <div class="panel">
+      <h3>Pending Customer Submissions (${pending.length})</h3>
+      <div class="grid grid-4">
+        ${pending.map(g=>`
+          <div class="card" style="padding:10px">
+            <img src="${g.url}" style="height:100px;width:100%;object-fit:cover;border-radius:8px;margin-bottom:8px">
+            <div class="muted" style="font-size:.78rem;margin-bottom:8px">${g.category} · by @${g.uploadedBy}</div>
+            <div class="row-actions" style="width:100%">
+              <button class="btn-sm" style="flex:1" data-approve-img="${g.id}">Approve</button>
+              <button class="btn-sm" style="flex:1" data-del-img="${g.id}">Reject</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
     <div class="panel">
       <h3>All Images (${DB.gallery.length})</h3>
       <div class="grid grid-4">
         ${DB.gallery.map(g=>`
           <div class="card" style="padding:10px">
             <img src="${g.url}" style="height:100px;width:100%;object-fit:cover;border-radius:8px;margin-bottom:8px">
-            <div class="muted" style="font-size:.78rem;margin-bottom:8px">${g.category}</div>
+            <div class="muted" style="font-size:.78rem;margin-bottom:8px">${g.category}${g.uploadedBy?` · by @${g.uploadedBy}`:''}${g.approved===false?' · <span style="color:var(--warn)">Pending</span>':''}</div>
             <button class="btn btn-sm btn-danger btn-block" data-del-img="${g.id}">Delete</button>
           </div>`).join('')}
       </div>
@@ -1283,6 +1340,7 @@ route('/admin/reviews', ()=>{
 
 route('/admin/blog', ()=>{
   if(!adminGuard()) return '';
+  const pending = DB.blog.filter(b=>b.approved===false);
   const body = `
     <div class="dash-topbar"><h1>Blog Management</h1></div>
     <div class="panel">
@@ -1297,10 +1355,29 @@ route('/admin/blog', ()=>{
         <button class="btn btn-primary">Publish Article</button>
       </form>
     </div>
+    ${pending.length? `
     <div class="panel">
+      <h3>Pending Customer Stories (${pending.length})</h3>
+      ${pending.map(b=>`
+        <div class="qa-item">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <img src="${b.image}" style="width:90px;height:70px;object-fit:cover;border-radius:8px;flex:none">
+            <div>
+              <div class="q">${b.title} <span class="muted" style="font-weight:400">by @${b.author}</span></div>
+              <p class="muted" style="margin:4px 0">${b.excerpt}</p>
+              <div class="row-actions">
+                <button data-approve-blog="${b.id}">Approve</button>
+                <button data-del-blog="${b.id}">Reject</button>
+              </div>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+    <div class="panel">
+      <h3>All Articles (${DB.blog.length})</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Title</th><th>Date</th><th>Actions</th></tr></thead>
-        <tbody>${DB.blog.map(b=>`<tr><td>${b.title}</td><td>${fmtDate(b.date)}</td><td class="row-actions"><button data-del-blog="${b.id}">Delete</button></td></tr>`).join('')}</tbody>
+        <thead><tr><th>Title</th><th>Author</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${DB.blog.map(b=>`<tr><td>${b.title}</td><td>${b.authorEmail?'@'+b.author:b.author||'—'}</td><td>${fmtDate(b.date)}</td><td><span class="badge badge-${b.approved===false?'pending':'confirmed'}">${b.approved===false?'Pending':'Published'}</span></td><td class="row-actions"><button data-del-blog="${b.id}">Delete</button></td></tr>`).join('')}</tbody>
       </table></div>
     </div>
   `;
@@ -1354,12 +1431,14 @@ route('/admin/customers', ()=>{
     <div class="dash-topbar"><h1>Customer Management</h1></div>
     <div class="panel">
       <div class="table-wrap"><table>
-        <thead><tr><th></th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Bookings</th><th>Actions</th></tr></thead>
+        <thead><tr><th></th><th>Name</th><th>Username</th><th>Email</th><th>Phone</th><th>Status</th><th>Joined</th><th>Bookings</th><th>Actions</th></tr></thead>
         <tbody>
         ${DB.customers.map(c=>`<tr>
           <td>${c.avatar?`<img src="${c.avatar}" style="width:34px;height:34px;border-radius:50%;object-fit:cover">`:`<div class="avatar-circle-placeholder" style="width:34px;height:34px;font-size:.85rem">${c.name.charAt(0).toUpperCase()}</div>`}</td>
-          <td>${c.name}</td><td>${c.email}</td><td>${c.phone||'—'}</td><td>${fmtDate(c.joined)}</td><td>${DB.bookings.filter(b=>b.customerEmail===c.email).length}</td>
-          <td class="row-actions"><a class="btn btn-sm" href="#/admin/customer/${encodeURIComponent(c.email)}">View History</a><button data-del-cust="${c.email}">Delete</button></td></tr>`).join('')}
+          <td>${c.name}</td><td>@${c.username}</td><td>${c.email}</td><td>${c.phone||'—'}</td>
+          <td><span class="badge badge-${c.deleted?'cancelled':'confirmed'}">${c.deleted?'Deactivated':'Active'}</span></td>
+          <td>${fmtDate(c.joined)}</td><td>${DB.bookings.filter(b=>b.customerEmail===c.email).length}</td>
+          <td class="row-actions"><a class="btn btn-sm" href="#/admin/customer/${encodeURIComponent(c.email)}">View Details</a><button data-del-cust="${c.email}">Delete</button></td></tr>`).join('')}
         </tbody>
       </table></div>
       ${DB.customers.length===0?`<div class="empty-state"><div class="em-icon">👥</div>No registered customers yet.</div>`:''}
@@ -1383,14 +1462,19 @@ route('/admin/customer/:email', (args)=>{
   if(adminCustHistoryFilter.year !== '') filtered = filtered.filter(b=>new Date(b.travelDate).getFullYear()===Number(adminCustHistoryFilter.year));
   const body = `
     <div class="dash-topbar"><h1>Customer: ${c.name}</h1><a href="#/admin/customers" class="btn btn-ghost">← Back to Customers</a></div>
-    <div class="panel" style="display:flex;gap:18px;align-items:center">
+    <div class="panel" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
       ${c.avatar?`<img class="avatar-lg" src="${c.avatar}">`:`<div class="avatar-circle-placeholder">${c.name.charAt(0).toUpperCase()}</div>`}
-      <div>
-        <div><b>${c.name}</b></div>
+      <div style="flex:1">
+        <div><b>${c.name}</b> <span class="muted">@${c.username}</span> <span class="badge badge-${c.deleted?'cancelled':'confirmed'}">${c.deleted?'Deactivated':'Active'}</span></div>
         <div class="muted">${c.email}${c.phone?` · ${c.phone}`:''}</div>
         <div class="muted">Joined ${fmtDate(c.joined)} · Security question: "${c.securityQuestion||'—'}"</div>
       </div>
+      <div class="row-actions">
+        <button class="btn btn-sm" id="admin-reset-pw-btn">Reset Password</button>
+        ${c.deleted? `<button class="btn btn-sm" id="admin-reactivate-btn">Reactivate Account</button>` : ''}
+      </div>
     </div>
+    <p class="hint">For security, passwords are one-way encrypted and can't be viewed — "Reset Password" generates a new temporary one you can share with the customer.</p>
     <div class="kpi-grid">
       <div class="kpi-card"><span>Total Bookings (All Time)</span><b>${allBookings.length}</b></div>
       <div class="kpi-card"><span>Completed</span><b>${allBookings.filter(b=>b.status==='Completed').length}</b></div>
@@ -1767,8 +1851,44 @@ function wirePageScripts(){
   const profileForm = document.getElementById('profile-form');
   if(profileForm) profileForm.addEventListener('submit', e=>{
     e.preventDefault(); const c = currentCustomer(); const fd = new FormData(profileForm);
-    c.name = fd.get('name'); c.phone = fd.get('phone')||''; c.avatar = fd.get('avatar')||c.avatar||'';
+    const newUsername = (fd.get('username')||'').trim();
+    if(newUsername && newUsername.toLowerCase() !== c.username.toLowerCase() && DB.customers.some(x=>x.username.toLowerCase()===newUsername.toLowerCase())){
+      toast('That username is already taken — please choose another.', 'error'); return;
+    }
+    c.name = fd.get('name'); if(newUsername) c.username = newUsername;
+    c.phone = fd.get('phone')||''; c.avatar = fd.get('avatar')||c.avatar||'';
     saveDB(); toast('Profile updated.', 'success'); render();
+  });
+
+  const sharePhotoForm = document.getElementById('share-photo-form');
+  if(sharePhotoForm) sharePhotoForm.addEventListener('submit', e=>{
+    e.preventDefault(); const c = currentCustomer(); const fd = new FormData(sharePhotoForm);
+    if(!fd.get('photo')){ toast('Please choose a photo to upload.', 'error'); return; }
+    DB.gallery.unshift({id:uid('IMG'), url:fd.get('photo'), category:fd.get('category'), uploadedBy:c.username, customerEmail:c.email, approved:false});
+    saveDB(); logActivity(`New gallery photo submitted by ${c.name}`);
+    toast('Photo submitted! It will appear in the gallery once approved.', 'success');
+    sharePhotoForm.reset();
+  });
+
+  const shareBlogForm = document.getElementById('share-blog-form');
+  if(shareBlogForm) shareBlogForm.addEventListener('submit', e=>{
+    e.preventDefault(); const c = currentCustomer(); const fd = new FormData(shareBlogForm);
+    if(!fd.get('image')){ toast('Please choose a cover photo.', 'error'); return; }
+    DB.blog.unshift({id:uid('BLG'), title:fd.get('title'), image:fd.get('image'), excerpt:fd.get('story'), date:new Date().toISOString().slice(0,10), author:c.username, authorEmail:c.email, approved:false});
+    saveDB(); logActivity(`New travel story submitted by ${c.name}`);
+    toast('Story submitted! It will go live on our Blog once approved.', 'success');
+    shareBlogForm.reset();
+  });
+
+  const deleteAccountBtn = document.getElementById('delete-account-btn');
+  if(deleteAccountBtn) deleteAccountBtn.addEventListener('click', ()=>{
+    if(!confirm('Are you sure you want to delete your account? You will be signed out and won\'t be able to log back in.')) return;
+    const c = currentCustomer();
+    c.deleted = true; c.deletedAt = Date.now();
+    saveDB(); logActivity(`Customer ${c.email} deleted their own account`);
+    SESSION.customerEmail = null; saveSession();
+    toast('Your account has been deleted.', 'success');
+    location.hash = '#/';
   });
 
   const custChangePasswordForm = document.getElementById('cust-change-password-form');
@@ -1796,6 +1916,7 @@ function wirePageScripts(){
     const email = fd.get('email').toLowerCase().trim();
     const c = DB.customers.find(x=>x.email===email);
     if(!c){ toast('No account found with that email.', 'error'); return; }
+    if(c.deleted){ toast('This account has been deactivated. Contact support if this was a mistake.', 'error'); return; }
     const hash = await sha256(fd.get('password'));
     if(hash !== c.passwordHash){ toast('Incorrect password.', 'error'); return; }
     SESSION.customerEmail = email; saveSession();
@@ -1808,14 +1929,16 @@ function wirePageScripts(){
     e.preventDefault();
     const fd = new FormData(registerForm);
     const email = fd.get('email').toLowerCase().trim();
+    const username = fd.get('username').trim();
     if(DB.customers.some(c=>c.email===email)){ toast('An account with this email already exists.', 'error'); return; }
+    if(DB.customers.some(c=>c.username.toLowerCase()===username.toLowerCase())){ toast('That username is already taken — please choose another.', 'error'); return; }
     const passwordHash = await sha256(fd.get('password'));
     const securityAnswerHash = await sha256(fd.get('securityAnswer').toLowerCase().trim());
     DB.customers.push({
-      name:fd.get('name'), email, phone:fd.get('phone')||'', passwordHash, avatar:fd.get('avatar')||'',
-      securityQuestion:fd.get('securityQuestion'), securityAnswerHash, joined:Date.now()
+      name:fd.get('name'), username, email, phone:fd.get('phone')||'', passwordHash, avatar:fd.get('avatar')||'',
+      securityQuestion:fd.get('securityQuestion'), securityAnswerHash, joined:Date.now(), deleted:false
     });
-    saveDB(); logActivity(`New customer registered: ${fd.get('name')}`);
+    saveDB(); logActivity(`New customer registered: ${fd.get('name')} (@${username})`);
     SESSION.customerEmail = email; saveSession();
     toast('Account created! Welcome to ' + DB.settings.siteName + '.', 'success');
     location.hash = '#/dashboard';
@@ -1946,9 +2069,13 @@ function wirePageScripts(){
   if(galleryAddForm) galleryAddForm.addEventListener('submit', e=>{
     e.preventDefault(); const fd = new FormData(galleryAddForm);
     if(!fd.get('url')){ toast('Please add an image URL or upload one from your device.', 'error'); return; }
-    DB.gallery.unshift({id:uid('IMG'), url:fd.get('url'), category:fd.get('category')});
+    DB.gallery.unshift({id:uid('IMG'), url:fd.get('url'), category:fd.get('category'), approved:true});
     saveDB(); toast('Image added.', 'success'); render();
   });
+  document.querySelectorAll('[data-approve-img]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const g = DB.gallery.find(x=>x.id===btn.dataset.approveImg); g.approved = true;
+    saveDB(); logActivity(`Approved a gallery photo from @${g.uploadedBy}`); toast('Photo approved and published.', 'success'); render();
+  }));
   document.querySelectorAll('[data-del-img]').forEach(btn=>btn.addEventListener('click', ()=>{
     DB.gallery = DB.gallery.filter(g=>g.id!==btn.dataset.delImg); saveDB(); toast('Image deleted.', 'success'); render();
   }));
@@ -1966,9 +2093,13 @@ function wirePageScripts(){
   if(blogAddForm) blogAddForm.addEventListener('submit', e=>{
     e.preventDefault(); const fd = new FormData(blogAddForm);
     const image = fd.get('image') || 'https://images.unsplash.com/photo-1500835556837-99ac94a94552?auto=format&fit=crop&w=700&q=60';
-    DB.blog.unshift({id:uid('BLG'), title:fd.get('title'), image, excerpt:fd.get('excerpt'), date:new Date().toISOString().slice(0,10)});
+    DB.blog.unshift({id:uid('BLG'), title:fd.get('title'), image, excerpt:fd.get('excerpt'), date:new Date().toISOString().slice(0,10), author:'Fahad Travels Team', approved:true});
     saveDB(); toast('Article published.', 'success'); render();
   });
+  document.querySelectorAll('[data-approve-blog]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const b = DB.blog.find(x=>x.id===btn.dataset.approveBlog); b.approved = true;
+    saveDB(); logActivity(`Approved a travel story from @${b.author}`); toast('Story approved and published.', 'success'); render();
+  }));
   document.querySelectorAll('[data-del-blog]').forEach(btn=>btn.addEventListener('click', ()=>{
     DB.blog = DB.blog.filter(b=>b.id!==btn.dataset.delBlog); saveDB(); toast('Article deleted.', 'success'); render();
   }));
@@ -2000,6 +2131,25 @@ function wirePageScripts(){
   const adminHistYear = document.getElementById('admin-hist-year');
   if(adminHistMonth) adminHistMonth.addEventListener('change', ()=>{ adminCustHistoryFilter.month = adminHistMonth.value; render(); });
   if(adminHistYear) adminHistYear.addEventListener('change', ()=>{ adminCustHistoryFilter.year = adminHistYear.value; render(); });
+
+  const adminResetPwBtn = document.getElementById('admin-reset-pw-btn');
+  if(adminResetPwBtn) adminResetPwBtn.addEventListener('click', async ()=>{
+    if(!confirm('Generate a new temporary password for this customer?')) return;
+    const email = location.hash.split('/admin/customer/')[1];
+    const c = DB.customers.find(x=>x.email===decodeURIComponent(email));
+    const tempPassword = Math.random().toString(36).slice(2,8) + Math.floor(Math.random()*90+10);
+    c.passwordHash = await sha256(tempPassword);
+    saveDB(); logActivity(`Admin reset password for ${c.email}`);
+    alert(`New temporary password for ${c.name}:\n\n${tempPassword}\n\nShare this with the customer securely — it won't be shown again.`);
+    toast('Temporary password generated.', 'success');
+  });
+  const adminReactivateBtn = document.getElementById('admin-reactivate-btn');
+  if(adminReactivateBtn) adminReactivateBtn.addEventListener('click', ()=>{
+    const email = decodeURIComponent(location.hash.split('/admin/customer/')[1]);
+    const c = DB.customers.find(x=>x.email===email);
+    c.deleted = false; saveDB(); logActivity(`Admin reactivated account ${c.email}`);
+    toast('Account reactivated.', 'success'); render();
+  });
 
   // ---- Admin: customers
   document.querySelectorAll('[data-del-cust]').forEach(btn=>btn.addEventListener('click', ()=>{

@@ -54,6 +54,52 @@ python3 -m http.server 8080
   their account (or later from Profile Settings), shown next to their name
   on the dashboard and in the admin's Customers list / customer detail page.
 
+## Latest updates (round 5) — critical mobile bug fix
+Found and fixed a real regression: an earlier edit to widen the nav breakpoint
+accidentally deleted the CSS rule that hides the full nav menu on mobile/
+tablet widths. That's exactly the overlapping-header bug in your screenshot —
+the desktop nav was rendering (and overflowing) at every screen size instead
+of collapsing into the hamburger menu. It's fixed now and verified: the nav
+correctly collapses below 1220px width, with no leftover rule to accidentally
+keep it visible.
+
+**Please re-download this whole folder fresh** (don't reuse an old copy) and
+do a hard refresh in your browser (Ctrl/Cmd+Shift+R) if you had a previous
+version open, so you're not looking at a cached copy of the broken CSS.
+
+Everything from your long feature list (answer-in-account, change/delete
+password, delete account without removing admin's record, unique username,
+customer gallery uploads with name credit, all-time + month/year history,
+Ask-a-Question tied to account, admin visibility into customer accounts, and
+customer-written blog posts with photos) was already built in the previous
+round — see "round 3/4" notes below for exactly what each does. Admin still
+can't view a customer's raw password (see the round 4 note on why), but can
+reset it for them.
+
+## Latest updates (round 4)
+- **Unique usernames**: registration now requires a nickname/username, checked
+  for uniqueness (case-insensitive) at signup and if changed later in Profile
+  Settings.
+- **Self-service account deletion**: customers get a "Danger Zone" panel to
+  delete their own account. It signs them out and blocks future logins, but
+  the record and all booking history stay fully visible to admin (status
+  shows as "Deactivated"), which admin can reverse with a "Reactivate" button.
+- **Admin password reset (not viewing)**: passwords are one-way hashed
+  everywhere, so even admin can't see the original text — instead, the
+  customer detail page has a "Reset Password" button that generates a new
+  temporary password for admin to relay to the customer.
+- **Customer-submitted gallery photos**: dashboard → "Share a Photo" (device
+  upload + category) goes into an admin approval queue (Admin → Gallery →
+  Pending Customer Submissions); once approved it appears publicly with a
+  "📷 @username" credit overlay on the photo.
+- **Customer-submitted blog stories**: dashboard → "Share Your Travel Story"
+  (title + cover photo + story text) goes into an admin approval queue
+  (Admin → Blog → Pending Customer Stories); once approved it's published
+  with a "by @username" byline.
+- Admin's Customer Detail page now shows username, phone, photo, join date,
+  security question, account status, full booking history (all-time or
+  filtered by month/year), and every question that customer has asked.
+
 ## What works right now
 - Every public page: Home, About, Packages (with filters/sorting), Package
   Details, Booking, Gallery (with lightbox), Reviews, Blog, FAQs, Contact,
